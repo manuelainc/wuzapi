@@ -1611,6 +1611,25 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 
 	case *events.AppState:
 		log.Info().Str("index", fmt.Sprintf("%+v", evt.Index)).Str("actionValue", fmt.Sprintf("%+v", evt.SyncActionValue)).Msg("App state event received")
+	case *events.MarkChatAsRead:
+		// "Mark as read" / "Mark as unread" done by hand on another device. It used
+		// to fall through to "Unhandled event", so subscribing to AppState did not
+		// deliver it. Sent with type AppState (the subscription that covers it).
+		postmap["type"] = "AppState"
+		postmap["event"] = map[string]interface{}{
+			"JID":          evt.JID.String(),
+			"Timestamp":    evt.Timestamp,
+			"FromFullSync": evt.FromFullSync,
+			"Action": map[string]interface{}{
+				"markChatAsReadAction": map[string]interface{}{
+					"read":         evt.Action.GetRead(),
+					"timestamp":    evt.Timestamp.UnixMilli(),
+					"messageRange": evt.Action.GetMessageRange(),
+				},
+			},
+		}
+		dowebhook = 1
+		log.Info().Str("jid", evt.JID.String()).Bool("read", evt.Action.GetRead()).Bool("fromFullSync", evt.FromFullSync).Msg("Mark chat as read/unread received")
 	case *events.LoggedOut:
 		postmap["type"] = "LoggedOut"
 		dowebhook = 1
