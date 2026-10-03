@@ -1124,6 +1124,20 @@ curl -X POST -H 'Token: 1234ABCD' -H 'Content-Type: application/json' --data '{"
 
 ---
 
+## Mark a chat as read or unread
+
+Marks a whole chat as read or **unread** on all linked devices, the same as "Mark as read" / "Mark as unread" in the chat menu of the phone. It is an app state change (`markChatAsReadAction`), not a read receipt: `/chat/markread` sends read receipts for specific messages, this one only changes the chat's read marker. `read` is required; `last_message_timestamp` (unix seconds), `last_message_id` and `last_message_from_me` optionally describe the last message of the chat.
+
+endpoint: _/chat/markchatread_
+
+method: **POST**
+
+```
+curl -X POST -H 'Token: 1234ABCD' -H 'Content-Type: application/json' --data '{"jid":"5491155553934@s.whatsapp.net","read":false}' http://localhost:8080/chat/markchatread
+```
+
+---
+
 ## React to messages
 
 Sends a reaction for an existing message. Id is the message Id to react to, if its your own message, prefix the Id with the string 'me:'
