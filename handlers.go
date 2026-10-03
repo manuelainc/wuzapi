@@ -7870,3 +7870,84 @@ func (s *server) publishSentMessageEvent(token, userID, txtid string, recipient 
 	// Publish directly to RabbitMQ (bypassing subscription check for sent messages)
 	go sendToGlobalRabbit(jsonData, token, userID)
 }
+
+// MarkChatRead marks a whole chat as read or UNREAD across the linked devices,
+// the same as "Mark as read" / "Mark as unread" in the chat menu of the phone.
+// It is an app state (markChatAsReadAction), not a read receipt: marking read
+// this way does not send blue ticks, and "unread" is only the local marker.
+func (s *server) MarkChatRead() http.HandlerFunc {
+
+	type requestMarkChatReadStruct struct {
+		Jid                  string `json:"jid"`
+		Read                 bool   `json:"read"`
+		LastMessageTimestamp int64  `json:"last_message_timestamp,omitempty"` // unix seconds
+		LastMessageID        string `json:"last_message_id,omitempty"`
+		LastMessageFromMe    bool   `json:"last_message_from_me,omitempty"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		txtid := r.Context().Value("userinfo").(Values).Get("Id")
+
+		client := clientManager.GetWhatsmeowClient(txtid)
+
+		if client == nil {
+			s.Respond(w, r, http.StatusInternalServerError, errors.New("no session"))
+			return
+		}
+
+		decoder := json.NewDecoder(r.Body)
+		var t requestMarkChatReadStruct
+		err := decoder.Decode(&t)
+		if err != nil {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("could not decode Payload"))
+			return
+		}
+
+		if t.Jid == "" {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("missing jid in Payload"))
+			return
+		}
+
+		chatJID, err := types.ParseJID(t.Jid)
+		if err != nil {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("invalid Chat JID format"))
+			return
+		}
+
+		var lastTS time.Time
+		if t.LastMessageTimestamp > 0 {
+			lastTS = time.Unix(t.LastMessageTimestamp, 0)
+		}
+		var lastKey *waCommon.MessageKey
+		if t.LastMessageID != "" {
+			lastKey = &waCommon.MessageKey{
+				RemoteJID: proto.String(chatJID.String()),
+				FromMe:    proto.Bool(t.LastMessageFromMe),
+				ID:        proto.String(t.LastMessageID),
+			}
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		err = client.SendAppState(ctx, appstate.BuildMarkChatAsRead(chatJID, t.Read, lastTS, lastKey))
+		if err != nil {
+			s.Respond(w, r, http.StatusInternalServerError, errors.New(fmt.Sprintf("failed to mark chat: %s", err)))
+			return
+		}
+		statusText := "Chat marked as read"
+		if !t.Read {
+			statusText = "Chat marked as unread"
+		}
+		response := map[string]interface{}{
+			"success": true,
+			"message": statusText,
+		}
+		responseJson, err := json.Marshal(response)
+		if err != nil {
+			s.Respond(w, r, http.StatusInternalServerError, err)
+		} else {
+			s.Respond(w, r, http.StatusOK, string(responseJson))
+		}
+	}
+}
